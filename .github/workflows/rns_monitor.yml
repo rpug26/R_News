@@ -1,0 +1,67 @@
+name: RNS Alert Bot
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [trigger-rns]
+
+concurrency:
+  group: rns-monitor
+  cancel-in-progress: false
+    
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Scripts
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          COMMAND_CHAT_ID: ${{ secrets.COMMAND_CHAT_ID }}
+          NOTIFICATION_CHAT_ID: ${{ secrets.NOTIFICATION_CHAT_ID }}
+          LOG_CHAT_ID: ${{ secrets.LOG_CHAT_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          PYTHONUNBUFFERED: "1"  # This is the fix for invisible logs
+        run: |
+          python commands.py
+          
+          # Fix for "unstaged changes" error
+          git add tickers.txt || true
+          git pull --rebase --autostash origin main
+          
+          python bot.py
+         
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Pull latest changes again just in case another run finished while this one was processing
+          git pull --rebase --autostash origin main
+          
+          [ -f last_rns_ids.txt ] && git add last_rns_ids.txt
+          [ -f kod_last_rns_id.txt ] && git add kod_last_rns_id.txt
+          
+          if ! git diff --cached --quiet; then
+            git commit -m "Update last seen RNS IDs [skip ci]"
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
