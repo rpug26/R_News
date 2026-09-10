@@ -1,26 +1,27 @@
 # R_News – UK Micro-Cap RNS Alert Bot
 
-Monitors Investegate for UK micro-cap RNS announcements and posts alerts to Telegram.
+Monitors Investegate for UK micro-cap RNS announcements, posts alerts to Telegram, and writes **Last RNS Date** back into your Notion UK AIM Micro-Cap database.
 
-## Setup (your own accounts only)
+## Architecture (v2)
 
-1. Create a new Telegram bot via @BotFather → get `TELEGRAM_TOKEN`
-2. Create three Telegram chat IDs:
-   - Notification channel/group
-   - Log channel/group
-   - Your personal chat ID (for commands)
-3. Create a GitHub PAT with `repo` scope → `GH_PAT`
-4. Add these secrets in this repo (Settings → Secrets and variables → Actions):
-   - `TELEGRAM_TOKEN`
-   - `NOTIFICATION_CHAT_ID`
-   - `LOG_CHAT_ID`
-   - `COMMAND_CHAT_ID`
-   - `GH_PAT`
+- **Live ticker source**: Notion `UK AIM Micro-Cap` database (falls back to `tickers.txt`)
+- **Write-back**: On every new RNS the bot updates the matching page’s `Last RNS Date` property
+- **Telegram**: Notification + Log channels
+- **Commands** (still available): `/ADD`, `/REMOVE`, `/LIST` (file-based fallback)
 
-## Commands (from authorised chat)
-- `/ADD TICKER1,TICKER2`
-- `/REMOVE TICKER`
-- `/LIST`
+## Required Secrets (GitHub Actions)
 
-## Running
-Use the GitHub Actions workflow “RNS Alert Bot” (manual trigger or repository_dispatch).
+| Secret | Description |
+|--------|-------------|
+| `TELEGRAM_TOKEN` | New bot from @BotFather |
+| `NOTIFICATION_CHAT_ID` | Channel/group for RNS alerts |
+| `LOG_CHAT_ID` | Channel for bot logs |
+| `COMMAND_CHAT_ID` | Your Telegram user ID(s) for commands |
+| `GH_PAT` | GitHub PAT with repo scope (for tickers.txt updates) |
+| `NOTION_TOKEN` | Notion integration token (same as Hive-bot) |
+| `NOTION_TICKERS_DB_ID` | `021838c4-6624-4a1e-b4d0-26d37e29095a` (UK AIM Micro-Cap) |
+
+## Next upgrades planned
+1. Snapshot / thesis commands (`#TICKER snapshot`)
+2. Nightly alpha screening digest
+3. Shared `hive_core` package with the main Hive-bot

@@ -4,11 +4,14 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [trigger-rns]
+  # Optional: schedule every 15 min during UK market hours (uncomment when ready)
+  # schedule:
+  #   - cron: '*/15 7-16 * * 1-5'  # Mon-Fri 07:00-16:59 UTC
 
 concurrency:
   group: rns-monitor
   cancel-in-progress: false
-    
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,27 +41,26 @@ jobs:
           NOTIFICATION_CHAT_ID: ${{ secrets.NOTIFICATION_CHAT_ID }}
           LOG_CHAT_ID: ${{ secrets.LOG_CHAT_ID }}
           GH_PAT: ${{ secrets.GH_PAT }}
-          PYTHONUNBUFFERED: "1"  # This is the fix for invisible logs
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_TICKERS_DB_ID: ${{ secrets.NOTION_TICKERS_DB_ID }}
+          PYTHONUNBUFFERED: "1"
         run: |
           python commands.py
-          
-          # Fix for "unstaged changes" error
+
           git add tickers.txt || true
           git pull --rebase --autostash origin main
-          
+
           python bot.py
-         
+
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Pull latest changes again just in case another run finished while this one was processing
+
           git pull --rebase --autostash origin main
-          
+
           [ -f last_rns_ids.txt ] && git add last_rns_ids.txt
-          [ -f kod_last_rns_id.txt ] && git add kod_last_rns_id.txt
-          
+
           if ! git diff --cached --quiet; then
             git commit -m "Update last seen RNS IDs [skip ci]"
             git push origin main
