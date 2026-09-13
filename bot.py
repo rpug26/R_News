@@ -13,7 +13,7 @@ from typing import List, Optional
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 NOTIFICATION_CHAT_ID = os.getenv("NOTIFICATION_CHAT_ID")
 LOG_CHAT_ID = os.getenv("LOG_CHAT_ID")
-FILE_NAME = "last_rns_ids.txt"
+FILE_NAME = os.getenv("RNS_STATE_FILE", "last_rns_ids.txt")
 TICKER_FILE = "tickers.txt"  # fallback only
 
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
