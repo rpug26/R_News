@@ -1,12 +1,16 @@
-name: RNS Alert Bot
+name: RNS Alert Bot (manual backup)
+
+# PRIMARY RUNNER = Railway (worker.py loop).
+# This workflow is MANUAL ONLY so it does not double-post alerts.
+# Do not enable schedule while Railway is running.
 
 on:
   workflow_dispatch:
   repository_dispatch:
     types: [trigger-rns]
-  # Optional: schedule every 15 min during UK market hours (uncomment when ready)
+  # DISABLED – Railway is the primary scanner
   # schedule:
-  #   - cron: '*/15 7-16 * * 1-5'  # Mon-Fri 07:00-16:59 UTC
+  #   - cron: '*/15 7-16 * * 1-5'
 
 concurrency:
   group: rns-monitor
