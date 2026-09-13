@@ -7,6 +7,7 @@ import re
 from urllib.parse import urljoin
 import time
 from datetime import datetime, timezone
+from typing import List, Optional
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -34,13 +35,14 @@ def log_to_telegram(message):
     except Exception as e:
         print(f"Failed to send log to Telegram: {e}")
 
-def _normalize_uuid(raw: str) -> str:
+def _normalize_uuid(raw):
     raw = (raw or "").replace("-", "").strip()
     if len(raw) == 32:
         return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
     return raw
 
-def load_tickers_from_notion() -> list[str]:
+def load_tickers_from_notion():
+    # type: () -> List[str]
     """Pull all tickers from the UK AIM Micro-Cap Notion database."""
     if not NOTION_TOKEN or not NOTION_TICKERS_DB_ID:
         return []
@@ -91,7 +93,8 @@ def load_tickers_from_notion() -> list[str]:
 
     return sorted(set(tickers))
 
-def load_tickers() -> list[str]:
+def load_tickers():
+    # type: () -> List[str]
     """Prefer Notion; fall back to local tickers.txt."""
     notion_tickers = load_tickers_from_notion()
     if notion_tickers:
@@ -105,7 +108,8 @@ def load_tickers() -> list[str]:
             return lines
     return []
 
-def find_notion_page_id(ticker: str) -> str | None:
+def find_notion_page_id(ticker):
+    # type: (str) -> Optional[str]
     """Return the Notion page_id for a given ticker, or None."""
     if not NOTION_TOKEN or not NOTION_TICKERS_DB_ID:
         return None
@@ -139,7 +143,8 @@ def find_notion_page_id(ticker: str) -> str | None:
             print(f"find_notion_page_id error for {ticker}: {e}")
     return None
 
-def update_last_rns_date(page_id: str, rns_date_iso: str) -> bool:
+def update_last_rns_date(page_id, rns_date_iso):
+    # type: (str, str) -> bool
     """Write the Last RNS Date property on the Notion page."""
     if not NOTION_TOKEN or not page_id:
         return False
