@@ -47,6 +47,8 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_TICKERS_DB_ID: ${{ secrets.NOTION_TICKERS_DB_ID }}
+          NOTION_WATCHLIST_DB_ID: ${{ secrets.NOTION_WATCHLIST_DB_ID }}
+          NOTION_RNS_DB_ID: ${{ secrets.NOTION_RNS_DB_ID }}
           PYTHONUNBUFFERED: "1"
         run: |
           python commands.py
