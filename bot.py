@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 import time
 from datetime import datetime, timezone
 from typing import List, Optional
+from html import unescape
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -56,7 +57,6 @@ def _normalize_uuid(raw):
 
 def load_tickers_from_notion():
     # type: () -> List[str]
-    """Pull all tickers from the UK AIM Micro-Cap Notion database."""
     if not NOTION_TOKEN or not NOTION_TICKERS_DB_ID:
         return []
 
@@ -102,7 +102,6 @@ def load_tickers_from_notion():
 
 def load_tickers():
     # type: () -> List[str]
-    """Prefer Notion; fall back to local tickers.txt."""
     notion_tickers = load_tickers_from_notion()
     if notion_tickers:
         print(f"Loaded {len(notion_tickers)} tickers from Notion.")
@@ -118,7 +117,6 @@ def load_tickers():
 
 def find_notion_page_id(ticker):
     # type: (str) -> Optional[str]
-    """Return the Notion page_id for a given ticker, or None."""
     if not NOTION_TOKEN or not NOTION_TICKERS_DB_ID:
         return None
 
@@ -148,7 +146,6 @@ def find_notion_page_id(ticker):
 
 def update_last_rns_date(page_id, rns_date_iso):
     # type: (str, str) -> bool
-    """Write the Last RNS Date property on the Notion page."""
     if not NOTION_TOKEN or not page_id:
         return False
 
@@ -177,7 +174,11 @@ def update_last_rns_date(page_id, rns_date_iso):
 
 def extract_ai_summary(rns_url):
     # type: (str) -> str
-    """Fetch Investegate RNS page and extract the Summary by AI block."""
+    """Fetch Investegate RNS page and extract the Summary by AI block.
+
+    Investegate puts the AI summary inside <div id="collapseSummary">.
+    Older heuristic scraped nav text; this targets the real container.
+    """
     if not rns_url:
         return ""
     try:
@@ -185,47 +186,59 @@ def extract_ai_summary(rns_url):
         if res.status_code != 200:
             print(f"  → AI summary fetch failed status {res.status_code}")
             return ""
-        soup = BeautifulSoup(res.text, "html.parser")
 
-        # Prefer explicit heading match
-        summary_parts = []
-        for tag in soup.find_all(["h2", "h3", "h4", "div", "section", "p"]):
-            text = tag.get_text(" ", strip=True)
-            if re.search(r"summary\s+by\s+ai", text, re.I):
-                # Collect following sibling text blocks
-                for sib in tag.find_all_next(["p", "div"], limit=12):
-                    t = sib.get_text(" ", strip=True)
-                    if not t:
-                        continue
-                    if re.search(r"disclaimer|this information is provided by rns", t, re.I):
-                        break
-                    if re.search(r"summary\s+by\s+ai", t, re.I):
-                        continue
-                    # Stop when we hit the formal company header / date block
-                    if re.match(r"^\d{1,2}\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$", t):
-                        break
-                    if len(t) > 40:
-                        summary_parts.append(t)
-                    if sum(len(x) for x in summary_parts) > 1200:
-                        break
-                break
+        html = res.text
 
-        if not summary_parts:
-            # Fallback: look for class names that often wrap AI summary
-            for cls in ["ai-summary", "summary-by-ai", "aiSummary", "summary"]:
-                node = soup.find(class_=re.compile(cls, re.I))
-                if node:
-                    t = node.get_text(" ", strip=True)
-                    t = re.sub(r"(?i)summary\s+by\s+ai\s*(beta)?\s*(close)?\s*x?", "", t).strip()
-                    if len(t) > 40:
-                        summary_parts.append(t)
-                        break
+        # Primary: #collapseSummary container
+        m = re.search(
+            r'id=["\']collapseSummary["\'][^>]*>(.*?)id=["\']summary-disclaimer["\']',
+            html,
+            flags=re.I | re.S,
+        )
+        if not m:
+            m = re.search(
+                r'id=["\']collapseSummary["\'][^>]*>(.*?)</div>\s*</div>\s*</div>',
+                html,
+                flags=re.I | re.S,
+            )
 
-        summary = " ".join(summary_parts).strip()
-        summary = re.sub(r"\s+", " ", summary)
-        if len(summary) > 1500:
-            summary = summary[:1497] + "..."
-        return summary
+        if m:
+            chunk = m.group(1)
+            chunk = re.sub(
+                r'<p[^>]*id=["\']summary-disclaimer["\'][\s\S]*?</p>',
+                " ",
+                chunk,
+                flags=re.I,
+            )
+            chunk = re.sub(r"<[^>]+>", " ", chunk)
+            chunk = unescape(re.sub(r"\s+", " ", chunk)).strip()
+            chunk = re.sub(r"(?i)\bDisclaimer\*?\b.*$", "", chunk).strip()
+            # Reject nav-like garbage
+            if re.search(r"(?i)advanced search|login register|newswire", chunk):
+                chunk = ""
+            if len(chunk) > 40:
+                if len(chunk) > 1500:
+                    chunk = chunk[:1497] + "..."
+                return chunk
+
+        # Fallback via BeautifulSoup
+        soup = BeautifulSoup(html, "html.parser")
+        node = soup.find(id="collapseSummary")
+        if node:
+            # remove disclaimer child
+            for bad in node.find_all(id="summary-disclaimer"):
+                bad.decompose()
+            t = node.get_text(" ", strip=True)
+            t = re.sub(r"(?i)\bDisclaimer\*?\b.*$", "", t).strip()
+            t = re.sub(r"\s+", " ", t)
+            if re.search(r"(?i)advanced search|login register|newswire", t):
+                return ""
+            if len(t) > 40:
+                if len(t) > 1500:
+                    t = t[:1497] + "..."
+                return t
+
+        return ""
     except Exception as e:
         print(f"  → extract_ai_summary error: {e}")
         return ""
@@ -233,7 +246,6 @@ def extract_ai_summary(rns_url):
 
 def create_rns_log_entry(ticker, company, title, rns_date_iso, link, ai_summary, rns_hash):
     # type: (str, str, str, str, str, str, str) -> bool
-    """Create one row in the RNS News Log database."""
     if not NOTION_TOKEN or not NOTION_RNS_DB_ID:
         print("  → NOTION_RNS_DB_ID not set; skip RNS log")
         return False
@@ -251,7 +263,6 @@ def create_rns_log_entry(ticker, company, title, rns_date_iso, link, ai_summary,
     if rns_date_iso:
         props["RNS Date"] = {"date": {"start": rns_date_iso}}
 
-    # Notion rejects null URL — drop if empty
     if not props["Link"]["url"]:
         del props["Link"]
 
@@ -293,7 +304,6 @@ def _get_page_rich_text(page_id, prop_name):
 
 def update_last_3_rns(page_id, rns_date_iso, title, ai_summary):
     # type: (str, str, str, str) -> bool
-    """Prepend latest RNS into Last 3 RNS (keep max 3 blocks)."""
     if not NOTION_TOKEN or not page_id:
         return False
 
@@ -303,10 +313,8 @@ def update_last_3_rns(page_id, rns_date_iso, title, ai_summary):
     block = f"• {rns_date_iso} | {title}\n  {snippet}".strip()
 
     existing = _get_page_rich_text(page_id, "Last 3 RNS")
-    # Split previous blocks on leading bullet lines
     parts = []
     if existing:
-        # Split on newline before bullet
         raw_parts = re.split(r"\n(?=• )", existing)
         for p in raw_parts:
             p = p.strip()
@@ -343,7 +351,6 @@ def update_last_3_rns(page_id, rns_date_iso, title, ai_summary):
 
 
 def send_telegram_msg(text, rns_url=None, max_retries=3, chat_id=None):
-    """Send to notification channel (default) or a specific chat_id (DM)."""
     target = chat_id or NOTIFICATION_CHAT_ID
     if not target or not TOKEN:
         print("Error: chat_id/NOTIFICATION_CHAT_ID or TOKEN not set.")
@@ -385,7 +392,6 @@ def send_telegram_msg(text, rns_url=None, max_retries=3, chat_id=None):
 
 def find_watchlist_user_ids(ticker):
     # type: (str) -> List[int]
-    """Return unique Telegram user IDs who have this ticker on My Watchlist."""
     if not NOTION_TOKEN or not NOTION_WATCHLIST_DB_ID:
         return []
 
@@ -444,7 +450,6 @@ def find_watchlist_user_ids(ticker):
 
 def notify_watchlist_holders(ticker, text, rns_url=None):
     # type: (str, str, Optional[str]) -> int
-    """DM each user who has ticker on My Watchlist. Returns number notified."""
     user_ids = find_watchlist_user_ids(ticker)
     if not user_ids:
         print(f"  → No watchlist holders for {ticker}")
@@ -537,7 +542,6 @@ def check_rns():
                         print(f"[{rns_time}] MATCH: {ticker} | Hash: {rns_id[:12]}")
                         batched_log_entries.append(f"• [{rns_time}] <b>{ticker}</b> - {clean_company}")
 
-                        # Extract AI summary from full RNS page
                         ai_summary = extract_ai_summary(full_link)
                         if ai_summary:
                             print(f"  → AI summary: {ai_summary[:120]}...")
@@ -557,7 +561,6 @@ def check_rns():
                         preview_url = f"{full_link}?t={int(time.time())}"
                         send_telegram_msg(msg, rns_url=preview_url)
 
-                        # --- My Watchlist personal alerts ---
                         try:
                             n = notify_watchlist_holders(
                                 ticker, msg, rns_url=preview_url
@@ -567,7 +570,6 @@ def check_rns():
                         except Exception as we:
                             print(f"  → Watchlist notify error: {we}")
 
-                        # --- Notion: RNS News Log + Last RNS Date + Last 3 RNS ---
                         try:
                             create_rns_log_entry(
                                 ticker=ticker,
@@ -586,14 +588,9 @@ def check_rns():
                             ok = update_last_rns_date(page_id, today_iso)
                             if ok:
                                 print(f"  → Notion Last RNS Date updated for {ticker}")
-                            else:
-                                print(f"  → Notion Last RNS Date failed for {ticker}")
-
                             ok3 = update_last_3_rns(page_id, today_iso, title, ai_summary)
                             if ok3:
                                 print(f"  → Notion Last 3 RNS updated for {ticker}")
-                            else:
-                                print(f"  → Notion Last 3 RNS failed for {ticker}")
                         else:
                             print(f"  → No Notion page found for {ticker}")
 
@@ -605,7 +602,7 @@ def check_rns():
                         last_seen_hashes.add(rns_id)
                         news_found += 1
 
-                    break  # next row
+                    break
 
         if news_found > 0:
             summary_msg = f"Found {news_found} new items:\n\n" + "\n".join(batched_log_entries)
