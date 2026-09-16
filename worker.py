@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 """
-R_News Railway worker – runs command handler + RNS scan on a loop.
-
-On every new RNS match, bot.check_rns() already:
-  1) posts Telegram (channel + watchlist DMs)
-  2) creates a row in Notion RNS News Log
-  3) updates Last RNS Date + Last 3 RNS on UK AIM Micro-Cap
-
-Also posts a weekday Daily Digest (Option A) once per day from 16:45 London.
+R_News Railway worker – command handler + RNS scan loop + daily digest.
 
 Env:
-  SCAN_INTERVAL_MINUTES     default 3 (off-hours floor)
-  SCAN_INTERVAL_MARKET_MIN  default 1 (UK market hours 07:00–16:30 London)
-  STATE_DIR                 durable path for last_rns_ids.txt (Railway volume)
-  DIGEST_ENABLED            default 1
-  DIGEST_HOUR / DIGEST_MINUTE  default 16 / 45 (London)
+  SCAN_INTERVAL_MINUTES / SCAN_INTERVAL_MARKET_MIN
+  STATE_DIR
+  DIGEST_ENABLED (default 1)
+  DIGEST_HOUR / DIGEST_MINUTE (default 16 / 45 London)
 """
 
 from __future__ import annotations
@@ -59,7 +51,6 @@ def _london_now():
 
 
 def _is_uk_market_hours() -> bool:
-    """Mon–Fri 07:00–16:30 London (RNS heavy window)."""
     now = _london_now()
     if now.weekday() >= 5:
         return False
@@ -77,7 +68,6 @@ def _env_check() -> None:
     if missing:
         print(f"Missing required env: {', '.join(missing)}")
         sys.exit(1)
-
     for key in (
         "NOTION_TOKEN",
         "NOTION_TICKERS_DB_ID",
@@ -106,9 +96,8 @@ def run_once() -> None:
         print(f"[{_ts()}] bot.py error: {e}")
         traceback.print_exc()
 
-    # Daily digest (weekdays from 16:45 London, once per day)
     try:
-        from bot import send_daily_digest
+        from daily_digest import send_daily_digest
 
         if send_daily_digest(force=False):
             print(f"[{_ts()}] Daily digest posted")
