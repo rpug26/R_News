@@ -1,0 +1,24 @@
+name: Force Daily Digest
+
+on:
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install requests
+      - name: Send digest (force)
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          NOTIFICATION_CHAT_ID: ${{ secrets.NOTIFICATION_CHAT_ID }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_RNS_DB_ID: ${{ secrets.NOTION_RNS_DB_ID }}
+          DIGEST_ENABLED: "1"
+        run: |
+          python3 -c "from daily_digest import send_daily_digest; ok=send_daily_digest(force=True); raise SystemExit(0 if ok else 1)"
