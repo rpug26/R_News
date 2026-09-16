@@ -7,10 +7,14 @@ On every new RNS match, bot.check_rns() already:
   2) creates a row in Notion RNS News Log
   3) updates Last RNS Date + Last 3 RNS on UK AIM Micro-Cap
 
+Also posts a weekday Daily Digest (Option A) once per day from 16:45 London.
+
 Env:
   SCAN_INTERVAL_MINUTES     default 3 (off-hours floor)
   SCAN_INTERVAL_MARKET_MIN  default 1 (UK market hours 07:00–16:30 London)
   STATE_DIR                 durable path for last_rns_ids.txt (Railway volume)
+  DIGEST_ENABLED            default 1
+  DIGEST_HOUR / DIGEST_MINUTE  default 16 / 45 (London)
 """
 
 from __future__ import annotations
@@ -34,6 +38,10 @@ os.makedirs(STATE_DIR, exist_ok=True)
 os.environ.setdefault(
     "RNS_STATE_FILE",
     os.path.join(STATE_DIR, "last_rns_ids.txt"),
+)
+os.environ.setdefault(
+    "DIGEST_STATE_FILE",
+    os.path.join(STATE_DIR, "last_digest_date.txt"),
 )
 
 INTERVAL_OFF = max(1, int(os.getenv("SCAN_INTERVAL_MINUTES", "3")))
@@ -70,14 +78,14 @@ def _env_check() -> None:
         print(f"Missing required env: {', '.join(missing)}")
         sys.exit(1)
 
-    # Soft warnings for Notion auto-sync
     for key in (
         "NOTION_TOKEN",
         "NOTION_TICKERS_DB_ID",
         "NOTION_RNS_DB_ID",
+        "NOTIFICATION_CHAT_ID",
     ):
         if not os.getenv(key):
-            print(f"[{_ts()}] WARNING: {key} not set – Notion auto-sync incomplete")
+            print(f"[{_ts()}] WARNING: {key} not set – features may be incomplete")
 
 
 def run_once() -> None:
@@ -96,6 +104,16 @@ def run_once() -> None:
         check_rns()
     except Exception as e:
         print(f"[{_ts()}] bot.py error: {e}")
+        traceback.print_exc()
+
+    # Daily digest (weekdays from 16:45 London, once per day)
+    try:
+        from bot import send_daily_digest
+
+        if send_daily_digest(force=False):
+            print(f"[{_ts()}] Daily digest posted")
+    except Exception as e:
+        print(f"[{_ts()}] daily digest error: {e}")
         traceback.print_exc()
 
     wait = _next_interval_min()
